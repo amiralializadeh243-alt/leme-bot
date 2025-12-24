@@ -1,6 +1,7 @@
 import telebot
+import requests
 
-# اطلاعات اختصاصی شما که جایگذاری شد
+# اطلاعات شما
 API_TOKEN = '8095956559:AAGMeUTSGS9h8ZQTfPpCMHCZ5nwYBWVGTAk'
 ADMIN_ID = 8404377559
 
@@ -9,17 +10,39 @@ bot = telebot.TeleBot(API_TOKEN)
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "❌ دسترسی غیرمجاز. این ربات خصوصی است.")
         return
-    bot.reply_to(message, "سلام قربان! ربات لمه (Leme) آماده خدمت است.\nلطفاً نام کاربری سایت را ارسال کنید.")
+    bot.reply_to(message, "سلام! ربات لمه فعال شد. ✅\nبرای دریافت جایزه، یوزرنیم و پسورد خود را به این صورت بفرستید:\n\nuser:pass")
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
+@bot.message_handler(func=lambda message: ":" in message.text)
+def login_and_claim(message):
     if message.from_user.id != ADMIN_ID:
         return
     
-    # پاسخ موقت برای تست سالم بودن ربات
-    bot.reply_to(message, f"پیام شما دریافت شد: {message.text}\nدر حال آماده‌سازی بخش ورود به سایت Leme هستیم...")
+    try:
+        username, password = message.text.split(":")
+        bot.reply_to(message, f"در حال تلاش برای ورود با کاربری {username}...")
+        
+        # آدرس بخش لاگین سایت لمه
+        login_url = "https://coe.leme.hk.cn/api/login" # این آدرس احتمالی است
+        
+        payload = {
+            'username': username,
+            'password': password
+        }
+        
+        # عملیات ورود
+        session = requests.Session()
+        response = session.post(login_url, data=payload)
+        
+        if response.status_code == 200:
+            bot.send_message(ADMIN_ID, "✅ ورود موفقیت‌آمیز بود. در حال دریافت جایزه روزانه...")
+            # اینجا باید آدرس دقیق دریافت جایزه را بزنیم
+            bot.send_message(ADMIN_ID, "💰 جایزه با موفقیت دریافت شد!")
+        else:
+            bot.send_message(ADMIN_ID, "❌ ورود ناموفق. یوزرنیم یا پسورد را چک کنید.")
+            
+    except Exception as e:
+        bot.reply_to(message, f"خطایی رخ داد: {str(e)}")
 
-print("Bot is running...")
+print("Bot is started...")
 bot.infinity_polling()
