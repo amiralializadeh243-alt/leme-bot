@@ -3,60 +3,75 @@ import requests
 from flask import Flask
 from threading import Thread
 
-# --- تنظیمات ---
+# --- تنظیمات امنیتی ---
 TOKEN = '8095956559:AAGMeUTSGS9h8ZQTfPpCMHCZ5nwYBWVGTAk'
 bot = telebot.TeleBot(TOKEN)
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-    'Accept': 'application/json, text/javascript, */*; q=0.01',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Referer': 'https://coe.leme.hk.cn/m/sign/check_in',
-    'Origin': 'https://coe.leme.hk.cn',
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-}
+# لیست سفید: فقط آی‌دی شما مجاز است
+ADMIN_IDS = [8404377559] 
 
 def claim_reward(chat_id, username, password):
     try:
         session = requests.Session()
-        # ۱. ورود و دریافت کوکی‌ها
+        # ۱. ورود و دریافت توکن زنده
         login_url = "https://coe.leme.hk.cn/login/check"
         payload = {'account': username, 'password': password, 'type': '1'}
-        session.post(login_url, data=payload, headers=HEADERS, timeout=15)
+        headers_base = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*'
+        }
+        session.post(login_url, data=payload, headers=headers_base, timeout=15)
         
-        # ۲. حرکت مستقیم به سمت دکمه طلایی (Sign-in Handler)
-        action_url = "https://coe.leme.hk.cn/m/sign/sign_in_handler"
-        response = session.post(action_url, headers=HEADERS)
+        user_token = session.cookies.get('token')
         
-        # ۳. تحلیل پاسخ (بر اساس تصاویر ۴۸ و ۴۹)
-        res_text = response.text.lower()
-        if '"code":1' in res_text or "success" in res_text:
-            bot.send_message(chat_id, "✅ **عملیات موفقیت‌آمیز!**\nدکمه طلایی زده شد. جایزه را در ایمیل بازی چک کنید.")
-        elif '"code":0' in res_text or "already" in res_text:
-            bot.send_message(chat_id, "⚠️ **تکراری:** جایزه امروز قبلاً دریافت شده است.")
+        if user_token:
+            # ۲. بازسازی حرکت ضبط شده (بر اساس cURL شما)
+            action_url = "https://coe.leme.hk.cn/h5new/signin"
+            action_headers = {
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Origin': 'https://coe.leme.hk.cn',
+                'Referer': 'https://coe.leme.hk.cn/m',
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+            data_raw = f'token={user_token}'
+            response = session.post(action_url, headers=action_headers, data=data_raw)
+            
+            res_json = response.json()
+            msg = res_json.get('msg', 'پاسخی دریافت نشد')
+            
+            if res_json.get('code') == 1 or "success" in msg.lower():
+                bot.send_message(chat_id, "✅ **عملیات موفق!** دکمه طلایی با آی‌دی شما زده شد.")
+            else:
+                bot.send_message(chat_id, f"⚠️ **پیام سایت:** {msg}")
         else:
-            bot.send_message(chat_id, "❌ سایت وارد شد اما دکمه عمل نکرد. احتمالاً پاسخ سایت تغییر کرده است.")
+            bot.send_message(chat_id, "❌ خطای ورود: توکن یافت نشد.")
             
     except Exception as e:
         bot.send_message(chat_id, f"⚠️ خطای فنی: `{str(e)[:40]}`")
 
+# مسدود کردن افراد غیرمجاز
+@bot.message_handler(func=lambda message: message.from_user.id not in ADMIN_IDS)
+def unauthorized_access(message):
+    bot.reply_to(message, "⛔ شما مجاز به استفاده از این ربات نیستید.")
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "✅ **ربات آنلاین شد.**\nمشخصات را بفرستید: `user:pass`")
+    bot.reply_to(message, "🚀 **ربات اختصاصی شما فعال است.**\nمشخصات را بفرستید: `user:pass`")
 
-@bot.message_handler(func=lambda message: ":" in message.text)
+@bot.message_handler(func=lambda message: ":" in message.text and message.from_user.id in ADMIN_IDS)
 def handle_message(message):
     u, p = message.text.split(":")[0].strip(), message.text.split(":")[1].strip()
-    bot.reply_to(message, "⌛ در حال تلاش برای کلیک روی دکمه طلایی...")
+    bot.reply_to(message, "⌛ در حال اجرای عملیات اختصاصی...")
     claim_reward(message.chat.id, u, p)
 
-# وب‌سرور برای زنده نگه داشتن سرویس در رندر (تصویر ۴۴)
+# وب‌سرور رندر
 app = Flask('')
 @app.route('/')
-def home(): return "Active"
+def home(): return "Private Bot Active"
 def run(): app.run(host='0.0.0.0', port=10000)
 
 if __name__ == "__main__":
     Thread(target=run).start()
-    # استفاده از skip_pending برای حل قطعی ارور ۴۰۹ (تصویر ۵۲)
     bot.polling(none_stop=True, skip_pending=True)
