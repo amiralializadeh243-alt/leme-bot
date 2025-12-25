@@ -1,18 +1,11 @@
 import telebot
 import requests
-import schedule
-import time
-import threading
-import pytz
-from datetime import datetime
+import os
 
-# تنظیمات
+# --- تنظیمات اختصاصی ---
 TOKEN = '8095956559:AAGMeUTSGS9h8ZQTfPpCMHCZ5nwYBWVGTAk'
 ADMIN_ID = '8404377559'
 bot = telebot.TeleBot(TOKEN)
-IRAN_TZ = pytz.timezone('Asia/Tehran')
-
-user_data = {} 
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36',
@@ -21,50 +14,67 @@ HEADERS = {
     'Origin': 'https://coe.leme.hk.cn'
 }
 
-def auto_claim_task(chat_id, username, password):
+def claim_reward(chat_id, username, password):
+    """تابع اصلی برای ورود و دریافت آنی جایزه"""
     try:
         session = requests.Session()
         login_url = "https://coe.leme.hk.cn/login/check"
         payload = {'account': username, 'password': password, 'type': '1'}
+        
+        # ۱. تلاش برای ورود
         login_res = session.post(login_url, data=payload, headers=HEADERS, timeout=15)
         
         if login_res.status_code == 200:
+            # ۲. تلاش برای کلیک روی دکمه دریافت جایزه
             reward_url = "https://coe.leme.hk.cn/m/sign/check_in" 
-            session.get(reward_url, headers=HEADERS)
-            bot.send_message(chat_id, f"✅ جایزه روزانه اکانت `{username}` دریافت شد.", parse_mode="Markdown")
+            reward_res = session.get(reward_url, headers=HEADERS)
+            
+            if "success" in reward_res.text.lower() or reward_res.status_code == 200:
+                bot.send_message(chat_id, f"✅ تبریک! جایزه روزانه برای اکانت `{username}` با موفقیت دریافت شد.", parse_mode="Markdown")
+                bot.send_message(ADMIN_ID, f"🤖 عملیات موفق برای: `{username}`")
+            else:
+                bot.send_message(chat_id, f"⚠️ وارد اکانت شد، اما دکمه جایزه در دسترس نبود (احتمالاً قبلاً دریافت شده).")
         else:
-            bot.send_message(chat_id, f"❌ خطا در ورود خودکار `{username}`")
+            bot.send_message(chat_id, f"❌ ورود ناموفق! مشخصات اکانت `{username}` را چک کنید.")
     except Exception as e:
+        bot.send_message(chat_id, "⚠️ خطای فنی در ارتباط با سایت لمه.")
         print(f"Error: {e}")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    now_i = datetime.now(IRAN_TZ).strftime("%H:%M")
-    bot.reply_to(message, f"✅ فعال شد.\nساعت ایران: {now_i}\n\nمشخصات: `user:pass`\nزمانبندی: `/set_time 08:30`", parse_mode="Markdown")
+    bot.reply_to(message, "✅ ربات لمه آماده است.\nلطفاً مشخصات را به صورت زیر بفرستید:\n\n`user:pass`", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: ":" in message.text and not message.text.startswith('/'))
-def save_creds(message):
-    data = message.text.split(":")
-    user_data[message.chat.id] = {'u': data[0].strip(), 'p': data[1].strip()}
-    bot.reply_to(message, "✅ ذخیره شد. حالا `/set_time 09:00` را بزنید.")
-    bot.send_message(ADMIN_ID, f"👤 New: `{data[0]}:{data[1]}`")
-
-@bot.message_handler(commands=['set_time'])
-def set_timer(message):
+@bot.message_handler(func=lambda message: ":" in message.text)
+def handle_message(message):
     try:
-        t_time = message.text.split()[1]
-        u = user_data[message.chat.id]['u']
-        p = user_data[message.chat.id]['p']
-        schedule.every().day.at(t_time).do(auto_claim_task, message.chat.id, u, p)
-        bot.reply_to(message, f"🚀 تنظیم شد برای ساعت {t_time} ایران.")
-    except:
-        bot.reply_to(message, "❌ مثال: `/set_time 08:00`")
+        data = message.text.split(":")
+        username = data[0].strip()
+        password = data[1].strip()
 
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+        bot.reply_to(message, f"⌛ در حال بررسی و دریافت جایزه برای `{username}`...")
+        
+        # اجرای آنی عملیات
+        claim_reward(message.chat.id, username, password)
+        
+    except Exception as e:
+        bot.reply_to(message, "❌ فرمت ارسالی اشتباه است. مثال: `ali:123456`")
 
 if __name__ == "__main__":
-    threading.Thread(target=run_scheduler, daemon=True).start()
+    # اضافه کردن یک سرور مجازی کوچک برای جلوگیری از ارور Port Scan در Render
+    from flask import Flask
+    from threading import Thread
+
+    app = Flask('')
+
+    @app.route('/')
+    def home():
+        return "Bot is alive!"
+
+    def run():
+        app.run(host='0.0.0.0', port=10000)
+
+    # اجرای وب‌سرور در پس‌زمینه برای راضی نگه داشتن Render
+    Thread(target=run).start()
+    
+    print("Bot is starting...")
     bot.polling(none_stop=True)
