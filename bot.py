@@ -2,73 +2,67 @@ import telebot
 import requests
 from flask import Flask
 from threading import Thread
-import time
 
-# تنظیمات
 TOKEN = '8095956559:AAGMeUTSGS9h8ZQTfPpCMHCZ5nwYBWVGTAk'
 bot = telebot.TeleBot(TOKEN)
 ADMIN_IDS = [8404377559]
 
-def claim_reward(chat_id, username, password):
+# اطلاعات استخراج شده از cURL شما
+LOGIN_URL = "https://coe.leme.hk.cn/h5new/login"
+SIGNIN_URL = "https://coe.leme.hk.cn/h5new/signin"
+
+# این همان دیتای رمزنگاری شده گوشی شماست که سایت آن را قبول می‌کند
+ENCRYPTED_DATA = 'username=aiYiuerPfbYaUAVCseiMUkldAQlY14L1gmLO26c59bFK1Rgi%2FvjtMiGJKfgheBF4Ptx958bKgg6fXl5nscHKZFi%2BjRq1rxnPPA6zew60ObOa6G9%2BixqaiRvI401v1U9I%2F9JQA1DcDJepL3Dx0YIVv8Li%2B0mtTOgM551o4NzwdDI%3D&password=WvvBWS%2Fejem5N9KkLO3wA51P5Rz4x66naBG30cYUM2jz2nnDTxBi%2Bab8Z4QF35hBmvKC%2FmJ9fHUSIdIKogN18Vq4n%2BxJ5VNlFf5QFUfUjzTLqA7FESc54RHB71cBv3zl%2FfDiw4OdFV%2B67cS2cwkZN1GIDRApfalpAMxOWZ1Px4o%3D&webRegion=2'
+
+def run_auto_claim(chat_id):
     try:
         session = requests.Session()
         headers = {
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'Accept': 'application/json, text/plain, */*',
             'Origin': 'https://coe.leme.hk.cn',
-            'Referer': 'https://coe.leme.hk.cn/m/login'
+            'Referer': 'https://coe.leme.hk.cn/m'
         }
 
-        # مرحله ۱: ورود (تلاش برای دریافت توکن)
-        login_url = "https://coe.leme.hk.cn/h5new/login/check"
-        payload = f'account={username}&password={password}&type=1'
+        # ۱. ورود با دیتای رمزنگاری شده (شبیه‌سازی کامل گوشی شما)
+        bot.send_message(chat_id, "⌛ در حال شبیه‌سازی ورود ایمن...")
+        login_res = session.post(LOGIN_URL, data=ENCRYPTED_DATA, headers=headers)
         
-        response = session.post(login_url, data=payload, headers=headers, timeout=15)
-        
-        # استخراج توکن (بررسی کوکی و بدنه پاسخ)
         token = session.cookies.get('token')
-        if not token and '"token":"' in response.text:
-            token = response.text.split('"token":"')[1].split('"')[0]
+        if not token and '"token":"' in login_res.text:
+            token = login_res.text.split('"token":"')[1].split('"')[0]
 
         if token:
-            # مرحله ۲: کلیک روی دکمه طلایی (تصویر ۶۰)
-            action_url = "https://coe.leme.hk.cn/h5new/signin"
-            headers['Referer'] = 'https://coe.leme.hk.cn/m'
-            data_raw = f'token={token}'
+            # ۲. کلیک روی دکمه طلایی با توکن جدید
+            bot.send_message(chat_id, "🔑 توکن دریافت شد. در حال زدن دکمه طلایی...")
+            data_signin = f'token={token}'
+            response = session.post(SIGNIN_URL, headers=headers, data=data_signin)
             
-            reward_res = session.post(action_url, headers=headers, data=data_raw)
-            res_data = reward_res.json()
-            
-            msg = res_data.get('msg', 'پاسخ نامشخص')
-            if res_data.get('code') == 1:
-                bot.send_message(chat_id, f"✅ **عملیات موفق!**\nپاسخ سایت: {msg}")
+            res_json = response.json()
+            msg = res_json.get('msg', 'بدون پیام')
+            if res_json.get('code') == 1:
+                bot.send_message(chat_id, f"✅ **پیروزی!** جایزه دریافت شد: {msg}")
             else:
                 bot.send_message(chat_id, f"⚠️ **پیام سایت:** {msg}")
         else:
-            bot.send_message(chat_id, "❌ **خطای توکن:** سایت اجازه ورود نداد. یوزرنیم و پسورد را دقیقاً مثل سایت وارد کنید.")
+            bot.send_message(chat_id, "❌ متأسفانه سایت دیتای رمزنگاری شده را منقضی کرده است.")
             
     except Exception as e:
-        bot.send_message(chat_id, f"⚠️ **خطای سیستمی:** `{str(e)[:50]}`")
-
-@bot.message_handler(func=lambda m: m.from_user.id not in ADMIN_IDS)
-def unauthorized(m):
-    bot.reply_to(m, "⛔ دسترسی غیرمجاز.")
+        bot.send_message(chat_id, f"⚠️ خطای فنی: `{str(e)[:50]}`")
 
 @bot.message_handler(commands=['start'])
-def send_welcome(m):
-    bot.reply_to(m, "🚀 **ربات لمه آماده است.**\nارسال مشخصات: `user:pass`")
+def start(m):
+    if m.from_user.id in ADMIN_IDS:
+        bot.reply_to(m, "🚀 ربات با متد جدید (Encrypted) آماده است.\nبرای دریافت جایزه دستور `/claim` را بزنید.")
+    else:
+        bot.reply_to(m, "⛔ دسترسی محدود.")
 
-@bot.message_handler(func=lambda m: ":" in m.text and m.from_user.id in ADMIN_IDS)
-def handle_message(m):
-    try:
-        u, p = m.text.split(":")[0].strip(), m.text.split(":")[1].strip()
-        bot.reply_to(m, "⌛ در حال پردازش...")
-        claim_reward(m.chat.id, u, p)
-    except:
-        bot.reply_to(m, "❌ فرمت اشتباه است.")
+@bot.message_handler(commands=['claim'])
+def handle_claim(m):
+    if m.from_user.id in ADMIN_IDS:
+        run_auto_claim(m.chat.id)
 
-# وب‌سرور رندر
 app = Flask('')
 @app.route('/')
 def home(): return "Active"
