@@ -4,9 +4,9 @@ import base64
 from flask import Flask
 from threading import Thread
 
-# --- تنظیمات نهایی شما ---
+# --- تنظیمات نهایی ---
 TOKEN = '8286464872:AAEO0JHlqMpi3vDTMxGHdUKFPfSXYVBj6Uc'
-GITHUB_TOKEN = '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' 
+GITHUB_TOKEN = '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'
 REPO_NAME = 'amiralializadeh243-alt/leme-bot'
 FILE_PATH = 'accounts.txt'
 
@@ -15,7 +15,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Manager is Online and Active!"
+    return "Bot is Live and Ready!"
 
 def save_to_github(new_entry):
     try:
@@ -24,26 +24,44 @@ def save_to_github(new_entry):
             "Authorization": f"token {GITHUB_TOKEN}",
             "Accept": "application/vnd.github.v3+json"
         }
-        
-        # ۱. تلاش برای خواندن فایل موجود
         r = requests.get(url, headers=headers)
-        sha = r.json().get('sha') if r.status_code == 200 else None
-        
-        if sha:
-            old_content = base64.b64decode(r.json()['content']).decode()
+        if r.status_code == 200:
+            content_data = r.json()
+            sha = content_data['sha']
+            old_content = base64.b64decode(content_data['content']).decode()
         else:
+            sha = None
             old_content = ""
 
-        # ۲. اضافه کردن اکانت جدید (هر اکانت در یک خط)
-        # اگر فایل خالی نیست، اول یک اینتر می‌زنیم
-        if old_content and not old_content.endswith('\n'):
-            updated_content = old_content + "\n" + new_entry
-        else:
-            updated_content = old_content + new_entry
-            
-        updated_content = updated_content.strip() + "\n"
+        updated_content = old_content.strip() + "\n" + new_entry + "\n"
         encoded = base64.b64encode(updated_content.encode()).decode()
 
-        # ۳. ارسال محتوای جدید به گیت‌هاب
         payload = {
-            "message": "Add new account via Telegram Bot
+            "message": "Add account via Bot",
+            "content": encoded
+        }
+        if sha:
+            payload["sha"] = sha
+
+        res = requests.put(url, headers=headers, json=payload)
+        return res.status_code in [200, 201]
+    except:
+        return False
+
+@bot.message_handler(commands=['start'])
+def start(m):
+    bot.reply_to(m, "ربات بیدار است! اکانت را به صورت user:pass بفرستید.")
+
+@bot.message_handler(func=lambda m: ":" in m.text)
+def handle(m):
+    if save_to_github(m.text.strip()):
+        bot.reply_to(m, "✅ با موفقیت در گیت‌هاب ذخیره شد.")
+    else:
+        bot.reply_to(m, "❌ خطا در ذخیره‌سازی! دسترسی توکن را چک کنید.")
+
+def run():
+    app.run(host='0.0.0.0', port=10000)
+
+if __name__ == "__main__":
+    Thread(target=run).start()
+    bot.polling(none_stop=True)
